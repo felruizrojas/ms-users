@@ -1,0 +1,87 @@
+services:
+
+  # ── Base de datos exclusiva de ms-users ──────────────────────────────────────
+
+  db-ms-users:
+    container_name: ms-users-db
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ms_users
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ms_users"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - ms_users_net
+    restart: unless-stopped
+
+  # ── Redis (cola de eventos hacia ms-auth) ────────────────────────────────────
+
+  redis:
+    container_name: ms-users-redis
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - ms_users_net
+    restart: unless-stopped
+
+  # ── ms-users ─────────────────────────────────────────────────────────────────
+
+  ms-users:
+    container_name: ms-users
+    image: ms-users
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: 3002
+      # PostgreSQL
+      DB_HOST: db-ms-users
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: ms_users
+      # Redis / Bull
+      REDIS_URL: redis://redis:6379
+      # JWT (mismo secret que ms-auth)
+      JWT_SECRET: 6dcc110adf4dcde1015a418452ec8ca39780835ef83d28b13b165799a0525f264594d585080db90d09b8b9d4661507e40d67d5d2ae7673fb0b92719a18233213
+      # Comunicación interna
+      MS_AUTH_URL: http://ms-auth:3001
+      INTERNAL_API_KEY: fe7db533c3030b5da6e544f4c631f92cbcdf0f0d452962e3cbfe08ca5a8c116e
+      # Cloudinary
+      CLOUDINARY_CLOUD_NAME: dx83p4455
+      CLOUDINARY_API_KEY: 862891856153891
+      CLOUDINARY_API_SECRET: si3Ik1sHAE63QrUhwipeArQUiq0
+    ports:
+      - "3002:3002"
+    depends_on:
+      db-ms-users:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - ms_users_net
+    restart: unless-stopped
+
+# ── Volúmenes y red ──────────────────────────────────────────────────────────
+
+volumes:
+  db_data:
+  redis_data:
+
+networks:
+  ms_users_net:
+    driver: bridge
