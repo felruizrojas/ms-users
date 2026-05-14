@@ -30,10 +30,6 @@ export const UserFactory = {
   }) {
     if (!validarDigitoVerificador(datos.run)) throw new Error('RUN inválido');
 
-    const emailExiste = await userRepo().findOne({ where: { email: datos.email.toLowerCase() } });
-    if (emailExiste) throw new Error('El correo ya está registrado');
-
-    // ms-users genera el credential_id para no depender de ms-auth en el arranque.
     const credentialId = uuidv4();
     const passwordHash = await bcrypt.hash(datos.password, 10);
 
@@ -47,7 +43,13 @@ export const UserFactory = {
       rol: RolUsuario.CIUDADANO,
       tipo: TipoUsuario.CIUDADANO,
     });
-    await userRepo().save(user);
+
+    try {
+      await userRepo().save(user);
+    } catch (e: any) {
+      if (e.code === '23505') throw new Error('El correo ya está registrado');
+      throw e;
+    }
 
     const ciudadano = ciudadanoRepo().create({
       user,
@@ -60,18 +62,33 @@ export const UserFactory = {
     });
     await ciudadanoRepo().save(ciudadano);
 
-    // Emitir evento para que ms-auth replique la credencial de forma asíncrona.
-    // Si Redis no está disponible el error se loguea pero NO revierte el registro.
     const name = `${datos.primer_nombre} ${datos.apellido_paterno}`.trim();
-    await emitUserRegistered({
-      userId: credentialId,
-      email: datos.email,
-      passwordHash,
-      role: RolUsuario.CIUDADANO,
-      permissions: [],
-      name,
-      avatarUrl: datos.foto_perfil,
-    });
+    try {
+      await emitUserRegistered({
+        userId: credentialId,
+        email: datos.email,
+        passwordHash,
+        role: RolUsuario.CIUDADANO,
+        permissions: [],
+        name,
+        avatarUrl: datos.foto_perfil,
+        tipo: 'ciudadano',
+        telefono: datos.telefono,
+        region: datos.region,
+        comuna: datos.comuna,
+        primer_nombre: datos.primer_nombre,
+        segundo_nombre: datos.segundo_nombre,
+        apellido_paterno: datos.apellido_paterno,
+        apellido_materno: datos.apellido_materno,
+        run: datos.run,
+        direccion: datos.direccion,
+      });
+    } catch (eventErr) {
+      // Si el evento falla ms-auth no crea la credencial — revertir para mantener consistencia
+      await ciudadanoRepo().delete({ id: ciudadano.id });
+      await userRepo().delete({ id: user.id });
+      throw new Error('Error al sincronizar con el servicio de autenticación. Intenta nuevamente.');
+    }
 
     return { user, ciudadano };
   },
@@ -91,8 +108,9 @@ export const UserFactory = {
   }) {
     if (!validarDigitoVerificador(datos.rut)) throw new Error('RUT inválido');
 
-    const emailExiste = await userRepo().findOne({ where: { email: datos.email.toLowerCase() } });
-    if (emailExiste) throw new Error('El correo ya está registrado');
+    if (datos.tipo_institucion !== TipoInstitucion.VETERINARIA && datos.tipo_institucion !== TipoInstitucion.MUNICIPALIDAD) {
+      throw new Error('Tipo de institución inválido');
+    }
 
     const rol = datos.tipo_institucion === TipoInstitucion.VETERINARIA
       ? RolUsuario.VETERINARIA
@@ -111,7 +129,13 @@ export const UserFactory = {
       rol,
       tipo: TipoUsuario.INSTITUCION,
     });
-    await userRepo().save(user);
+
+    try {
+      await userRepo().save(user);
+    } catch (e: any) {
+      if (e.code === '23505') throw new Error('El correo ya está registrado');
+      throw e;
+    }
 
     const institucion = institucionRepo().create({
       user,
@@ -123,15 +147,29 @@ export const UserFactory = {
     });
     await institucionRepo().save(institucion);
 
-    await emitUserRegistered({
-      userId: credentialId,
-      email: datos.email,
-      passwordHash,
-      role: rol,
-      permissions: [],
-      name: datos.nombre_institucion,
-      avatarUrl: datos.foto_perfil,
-    });
+    try {
+      await emitUserRegistered({
+        userId: credentialId,
+        email: datos.email,
+        passwordHash,
+        role: rol,
+        permissions: [],
+        name: datos.nombre_institucion,
+        avatarUrl: datos.foto_perfil,
+        tipo: 'institucion',
+        telefono: datos.telefono,
+        region: datos.region,
+        comuna: datos.comuna,
+        razon_social: datos.razon_social,
+        rut: datos.rut,
+        tipo_institucion: datos.tipo_institucion,
+        direccion: datos.direccion,
+      });
+    } catch (eventErr) {
+      await institucionRepo().delete({ id: institucion.id });
+      await userRepo().delete({ id: user.id });
+      throw new Error('Error al sincronizar con el servicio de autenticación. Intenta nuevamente.');
+    }
 
     return { user, institucion };
   },

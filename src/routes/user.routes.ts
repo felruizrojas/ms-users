@@ -193,37 +193,6 @@ router.get('/perfil', verifyToken, UserController.obtenerPerfil);
 router.patch('/perfil', verifyToken, upload.single('foto_perfil'), UserController.actualizarPerfil);
 router.delete('/perfil', verifyToken, UserController.desactivarCuenta);
 
-/**
- * @swagger
- * /api/users/regiones:
- *   get:
- *     summary: Obtener todas las regiones de Chile
- *     tags: [Ubicación]
- *     responses:
- *       200:
- *         description: Lista de regiones
- */
-router.get('/regiones', UserController.obtenerRegiones);
-
-/**
- * @swagger
- * /api/users/regiones/{codigoRegion}/comunas:
- *   get:
- *     summary: Obtener comunas de una región
- *     tags: [Ubicación]
- *     parameters:
- *       - in: path
- *         name: codigoRegion
- *         required: true
- *         schema:
- *           type: string
- *         example: "08"
- *         description: Código de la región (ej. 08 para Biobío)
- *     responses:
- *       200:
- *         description: Lista de comunas de la región
- */
-router.get('/regiones/:codigoRegion/comunas', UserController.obtenerComunas);
 
 /**
  * @swagger

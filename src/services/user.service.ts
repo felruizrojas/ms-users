@@ -74,7 +74,7 @@ export const actualizarPerfil = async (credentialId: string, datos: any, archivo
 
   if (archivo) {
     if (user.foto_perfil) {
-      const match = user.foto_perfil.match(/\/upload\/(?:v\d+\/)?(.+)\.[a-z]+$/i);
+      const match = user.foto_perfil.match(/\/upload\/(?:v\d+\/)?(.+)\.[^./]+$/i);
       if (match) await cloudinary.uploader.destroy(match[1]).catch(() => {});
     }
     const foto_perfil = await new Promise<string>((resolve, reject) => {
@@ -121,12 +121,22 @@ export const actualizarPerfil = async (credentialId: string, datos: any, archivo
   if (updatedUser) {
     const eventData: Parameters<typeof emitUserUpdated>[0] = { userId: credentialId };
     if (datosUser.foto_perfil) eventData.avatarUrl = datosUser.foto_perfil;
+    if (datosUser.telefono !== undefined) eventData.telefono = datosUser.telefono;
+    if (datosUser.region !== undefined) eventData.region = datosUser.region;
+    if (datosUser.comuna !== undefined) eventData.comuna = datosUser.comuna;
     if (updatedUser.tipo === 'ciudadano' && updatedUser.ciudadano) {
       const c = updatedUser.ciudadano;
       eventData.name = `${c.primer_nombre} ${c.apellido_paterno}`.trim();
+      eventData.primer_nombre = c.primer_nombre;
+      eventData.segundo_nombre = c.segundo_nombre;
+      eventData.apellido_paterno = c.apellido_paterno;
+      eventData.apellido_materno = c.apellido_materno;
+      eventData.direccion = c.direccion;
     }
     if (updatedUser.tipo === 'institucion' && updatedUser.institucion) {
       eventData.name = updatedUser.institucion.nombre_institucion;
+      eventData.razon_social = updatedUser.institucion.razon_social;
+      eventData.direccion = updatedUser.institucion.direccion;
     }
     await emitUserUpdated(eventData);
   }
@@ -182,18 +192,25 @@ export const cambiarEstadoUsuario = async (userId: string, is_active: boolean, c
     userId: user.credential_id,
     status: is_active ? 'active' : 'inactive',
   });
-  return verUsuario(userId);
+  user.is_active = is_active;
+  return user;
 };
 
 // Admin — Cambiar rol
 export const cambiarRolUsuario = async (userId: string, rol: string, callerRole?: string) => {
+  if (!Object.values(RolUsuario).includes(rol as RolUsuario)) {
+    const err: any = new Error('Rol inválido');
+    err.status = 400;
+    throw err;
+  }
   const user = await verUsuario(userId, callerRole);
   await userRepo().update({ id: userId }, { rol: rol as RolUsuario });
   await emitUserUpdated({
     userId: user.credential_id,
     role: rol,
   });
-  return verUsuario(userId);
+  user.rol = rol as RolUsuario;
+  return user;
 };
 
 // Admin — Editar datos
@@ -232,14 +249,24 @@ export const editarDatosUsuario = async (userId: string, datos: any, callerRole?
     }
   }
 
-  const updated = await verUsuario(userId);
+  const updated = await verUsuario(userId, callerRole);
   const eventData: Parameters<typeof emitUserUpdated>[0] = { userId: user.credential_id };
+  if (datosUser.telefono !== undefined) eventData.telefono = datosUser.telefono;
+  if (datosUser.region !== undefined) eventData.region = datosUser.region;
+  if (datosUser.comuna !== undefined) eventData.comuna = datosUser.comuna;
   if (updated.tipo === 'ciudadano' && updated.ciudadano) {
     const c = updated.ciudadano;
     eventData.name = `${c.primer_nombre} ${c.apellido_paterno}`.trim();
+    eventData.primer_nombre = c.primer_nombre;
+    eventData.segundo_nombre = c.segundo_nombre;
+    eventData.apellido_paterno = c.apellido_paterno;
+    eventData.apellido_materno = c.apellido_materno;
+    eventData.direccion = c.direccion;
   }
   if (updated.tipo === 'institucion' && updated.institucion) {
     eventData.name = updated.institucion.nombre_institucion;
+    eventData.razon_social = updated.institucion.razon_social;
+    eventData.direccion = updated.institucion.direccion;
   }
   await emitUserUpdated(eventData);
 
