@@ -4,9 +4,8 @@ import { validarDigitoVerificador } from './validarDigitoVerificador';
 export const esNombreValido = (valor: string): boolean =>
   /^[a-zA-ZáéíóúÁÉÍÓÚüÜñÑ\s]{3,}$/.test(valor.trim());
 
-// Al menos un @
 export const esEmailValido = (valor: string): boolean =>
-  valor.includes('@');
+  /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(valor.trim());
 
 // Solo números, con + opcional al inicio
 export const esTelefonoValido = (valor: string): boolean =>

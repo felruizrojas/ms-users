@@ -1,7 +1,6 @@
 import { Request, Response } from 'express';
 import * as UserService from '../services/user.service';
 import { successResponse, errorResponse } from '../utils/response';
-import { getRegiones, getComunasByRegion } from '../utils/regionComuna';
 import { AuthRequest } from '../middlewares/verifyToken';
 import { esNombreValido, esEmailValido, esTelefonoValido, normalizarYValidarRut } from '../utils/validators';
 
@@ -101,27 +100,6 @@ export const desactivarCuenta = async (req: AuthRequest, res: Response): Promise
     const userId = req.user!.id;
     await UserService.desactivarCuenta(userId);
     successResponse(res, { message: 'Cuenta desactivada correctamente' });
-  } catch (err: any) {
-    errorResponse(res, err.message);
-  }
-};
-
-// Regiones
-export const obtenerRegiones = async (_req: Request, res: Response): Promise<void> => {
-  try {
-    const data = await getRegiones();
-    successResponse(res, data);
-  } catch (err: any) {
-    errorResponse(res, err.message);
-  }
-};
-
-// Comunas por región
-export const obtenerComunas = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const codigoRegion = req.params.codigoRegion as string;
-    const data = await getComunasByRegion(codigoRegion);
-    successResponse(res, data);
   } catch (err: any) {
     errorResponse(res, err.message);
   }

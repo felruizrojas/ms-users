@@ -9,6 +9,21 @@ export interface UserRegisteredPayload {
   permissions: string[];
   name: string;
   avatarUrl?: string;
+  tipo: 'ciudadano' | 'institucion';
+  telefono: string;
+  region: string;
+  comuna: string;
+  // Ciudadano
+  primer_nombre?: string;
+  segundo_nombre?: string;
+  apellido_paterno?: string;
+  apellido_materno?: string;
+  run?: string;
+  direccion?: string;
+  // Institución
+  razon_social?: string;
+  rut?: string;
+  tipo_institucion?: string;
   timestamp: Date;
 }
 
@@ -21,7 +36,16 @@ export interface UserUpdatedPayload {
   name?: string;
   avatarUrl?: string;
   status?: 'active' | 'inactive';
-  timestamp: Date;
+  telefono?: string;
+  region?: string;
+  comuna?: string;
+  primer_nombre?: string;
+  segundo_nombre?: string;
+  apellido_paterno?: string;
+  apellido_materno?: string;
+  direccion?: string;
+  razon_social?: string;
+  timestamp?: Date;
 }
 
 export interface UserDeletedPayload {
