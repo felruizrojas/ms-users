@@ -1,8 +1,7 @@
 import Bull from 'bull';
 
-const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
+const REDIS_BROKER_URL = process.env.REDIS_BROKER_URL || 'redis://localhost:6379';
 
-// Opciones de reintento: 5 intentos, backoff exponencial desde 2s.
 const defaultJobOptions: Bull.JobOptions = {
   attempts: 5,
   backoff: { type: 'exponential', delay: 2000 },
@@ -10,7 +9,7 @@ const defaultJobOptions: Bull.JobOptions = {
   removeOnFail: false,
 };
 
-export const userEventsQueue = new Bull('user-events', REDIS_URL, {
+export const userEventsQueue = new Bull('user-events', REDIS_BROKER_URL, {
   defaultJobOptions,
 });
 
