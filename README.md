@@ -1,6 +1,6 @@
 # MS-Users — Sanos y Salvos
 
-Microservicio de gestión de usuarios de la plataforma **Sanos y Salvos**. Gestiona el registro diferenciado de ciudadanos e instituciones, perfiles de usuario con foto en Cloudinary, validación de RUN/RUT chileno, consulta de regiones y comunas, y administración de cuentas con control de roles.
+Microservicio de gestión de usuarios de la plataforma **Sanos y Salvos**. Gestiona el registro diferenciado de ciudadanos e instituciones, perfiles de usuario con foto en Cloudinary, validación de RUN/RUT chileno y administración de cuentas con control de roles.
 
 ---
 
@@ -8,24 +8,85 @@ Microservicio de gestión de usuarios de la plataforma **Sanos y Salvos**. Gesti
 
 | Herramienta | Uso |
 |---|---|
-| Node.js 18+ | Entorno de ejecución |
+| Node.js 20 | Entorno de ejecución |
 | Express 4 | Servidor HTTP |
 | TypeScript 5 | Tipado estático |
-| PostgreSQL 16+ | Persistencia de usuarios, ciudadanos e instituciones |
+| PostgreSQL 16 | Persistencia de datos |
 | TypeORM 0.3 | ORM y sincronización de esquema |
+| Redis + Bull | Cola de eventos hacia ms-auth |
 | Multer | Recepción de archivos en memoria |
-| Cloudinary | Almacenamiento y gestión de fotos de perfil |
-| Axios | Comunicación HTTP con MS-Auth y API del gobierno de Chile |
+| Cloudinary | Almacenamiento de fotos de perfil |
 | jsonwebtoken | Verificación de Access Tokens JWT |
+| bcrypt | Hash de contraseñas |
 | Swagger / OpenAPI 3.0 | Documentación interactiva de endpoints |
+| Docker | Contenerización del servicio |
+
+---
+
+# Arquitectura
+
+## Arquetipo
+
+### Arquetipo Maven
+
+- La totalidad del proyecto ms-users.
+
+- Microservicio construido con Java + Spring Boot + Maven que expone una API REST con autenticación JWT y gestión de credenciales.
+
+- Aisla la autenticación en su propio proceso y base de datos, permitiendo desplegarlo, escalarlo y mantenerlo independientemente del resto de microservicios.
+---
+
+## Patrón de Arquitectura
+
+### Arquitectura en Capas (Layered Architecture)
+
+- src/routes/ → src/controllers/ → src/services/ → src/models/
+
+- Cada capa tiene una responsabilidad única y solo se comunica con la capa inmediatamente inferior. Las rutas reciben la petición HTTP y delegan al controlador. El controlador valida y delega al servicio. El servicio contiene la lógica de negocio y accede a los modelos de TypeORM.
+
+- Facilita el mantenimiento y la lectura del código. Un cambio en la base de datos no afecta al controlador; un cambio en la ruta no afecta al servicio. Las responsabilidades están claramente separadas.
+
+### Arquitectura Orientada a Eventos (Event-Driven Architecture)
+
+- src/events/event-emitter.service.ts y src/config/redis.ts
+
+- Al registrar un usuario, ms-users emite eventos (user.registered, user.updated, user.deleted) hacia una cola Bull sobre Redis. ms-auth consume esa cola de forma asíncrona para crear la credencial de acceso. La cola tiene reintentos automáticos con backoff exponencial (5 intentos, desde 2 s).
+
+- Desacopla ms-users de ms-auth. ms-users no necesita saber nada de ms-auth; solo publica un evento y continúa. Si ms-auth está caído momentáneamente, la cola retiene el evento y lo reintenta cuando vuelva.
+
+## Patrón de Diseño: 
+
+### Repository (via TypeORM)
+
+- src/factories/UserFactory.ts y src/services/user.service.ts, mediante AppDataSource.getRepository(Entidad).
+
+- TypeORM expone un Repository<T> por entidad que encapsula todas las operaciones sobre la base de datos (find, save, delete, update). El código de negocio nunca escribe SQL directamente; interactúa con objetos tipados a través del repositorio.
+
+- Desacopla la lógica de negocio del motor de base de datos. Si en el futuro se cambiara de PostgreSQL a otro motor, solo se modifica la configuración de TypeORM, no la lógica del servicio.
+
+### Factory Method
+
+- src/factories/UserFactory.ts, métodos crearCiudadano() y crearInstitucion().
+
+- UserFactory centraliza toda la lógica de construcción de un usuario: genera el credential_id, hashea la contraseña, crea las entidades relacionadas (User + Ciudadano o User + Institucion), guarda en base de datos y emite el evento de sincronización. Si la emisión del evento falla, ejecuta un rollback eliminando las entidades recién creadas.
+
+- Evita duplicar la lógica de creación en múltiples controladores o servicios. Cualquier cambio en cómo se crea un usuario (nueva validación, nuevo campo) se hace en un único lugar.
+
+### Singleton
+
+- src/config/db.ts (AppDataSource) y src/config/redis.ts (userEventsQueue).
+
+- Ambos son módulos de Node.js exportados como una única instancia. Node.js cachea los módulos en require, por lo que cualquier archivo que importe AppDataSource o userEventsQueue obtiene siempre el mismo objeto.
+
+- Una única conexión a la base de datos y una única instancia de la cola evitan abrir múltiples conexiones simultáneas innecesarias, lo que podría agotar los recursos del servidor de base de datos y de Redis.
 
 ---
 
 ## Requisitos previos
 
-- Node.js 18+
+- Node.js 20+
 - PostgreSQL 16+
-- **MS-Auth corriendo** en `http://localhost:3001` (requerido para registro y seed)
+- Redis
 - Cuenta en [Cloudinary](https://cloudinary.com) (plan gratuito suficiente)
 
 ---
@@ -47,54 +108,26 @@ Crea un archivo `.env` en la raíz del proyecto:
 ```env
 PORT=3002
 
-# PostgreSQL para desarrollo local (npm run dev)
 DB_HOST=localhost
 DB_PORT=5432
 DB_USER=postgres
 DB_PASSWORD=tu_password
 DB_NAME=ms_users
 
-# PostgreSQL para contenedor (docker compose)
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=tu_password
-POSTGRES_DB=ms_users
+REDIS_BROKER_URL=redis://localhost:6379
 
-# JWT — debe ser el mismo secret que MS-Auth
-JWT_SECRET=tu_secreto_super_seguro_minimo_64_caracteres
-
-# Comunicación interna con MS-Auth
+JWT_SECRET=tu_secreto_minimo_64_caracteres
 MS_AUTH_URL=http://localhost:3001
 INTERNAL_API_KEY=clave_compartida_con_ms_auth
 
-# Solo para Docker Compose (cuando ms-users corre en contenedor)
-DOCKER_MS_AUTH_URL=http://host.docker.internal:3001
-
-# Cloudinary
 CLOUDINARY_CLOUD_NAME=tu_cloud_name
 CLOUDINARY_API_KEY=tu_api_key
 CLOUDINARY_API_SECRET=tu_api_secret
 
-# Bootstrap del SuperAdmin (se ejecuta automáticamente al iniciar)
-AUTO_SEED_SUPERADMIN=true
-SEED_SUPERADMIN_RETRIES=30
-SEED_SUPERADMIN_DELAY_MS=3000
-
-SUPERADMIN_EMAIL=admin@sanos.cl
-SUPERADMIN_PASSWORD=tu_password_seguro
-SUPERADMIN_PRIMER_NOMBRE=Nombre
-SUPERADMIN_SEGUNDO_NOMBRE=
-SUPERADMIN_APELLIDO_PATERNO=Apellido
-SUPERADMIN_APELLIDO_MATERNO=
-SUPERADMIN_RUN=11.111.111-1
-SUPERADMIN_TELEFONO=912345678
-SUPERADMIN_REGION=08
-SUPERADMIN_COMUNA=Concepción
-SUPERADMIN_DIRECCION=Av. Principal 123
-
 NODE_ENV=development
 ```
 
-> `INTERNAL_API_KEY` debe ser idéntico al configurado en MS-Auth. Genera uno con: `openssl rand -hex 32`
+> `JWT_SECRET` e `INTERNAL_API_KEY` deben ser idénticos a los configurados en ms-auth.
 
 ---
 
@@ -107,20 +140,6 @@ CREATE DATABASE ms_users;
 ```
 
 TypeORM con `synchronize: true` crea y actualiza las tablas automáticamente al iniciar.
-
----
-
-## Dependencia con MS-Auth
-
-MS-Users requiere que **MS-Auth esté corriendo** antes de iniciarse (el bootstrap del SuperAdmin realiza llamadas a MS-Auth):
-
-```bash
-# Terminal 1
-cd ms-auth && npm run dev
-
-# Terminal 2
-cd ms-users && npm run dev
-```
 
 ---
 
@@ -138,9 +157,25 @@ npm start
 Salida esperada:
 ```
 ✅ Conexión a PostgreSQL establecida
-⚠️  SuperAdmin ya existe, omitiendo...   ← si ya fue creado
-✅ SuperAdmin creado exitosamente         ← primer inicio
 🚀 MS-Users corriendo en http://localhost:3002
+```
+
+---
+
+## Levantar con Docker
+
+```bash
+docker compose up -d
+```
+
+No requiere tener Node.js, PostgreSQL ni Redis instalados. La imagen se descarga automáticamente desde Docker Hub (`felruiz/ms-users:latest`).
+
+```bash
+# Detener
+docker compose down
+
+# Detener y eliminar datos
+docker compose down -v
 ```
 
 ---
@@ -157,209 +192,110 @@ http://localhost:3002/api/docs
 
 ### Registro (público)
 
-| Método | Ruta | RF | Descripción |
-|---|---|---|---|
-| `POST` | `/api/users/register/ciudadano` | RF-05 | Registro de persona natural con RUN |
-| `POST` | `/api/users/register/institucion` | RF-05 | Registro de veterinaria o municipalidad con RUT |
+| Método | Ruta | Descripción |
+|---|---|---|
+| `POST` | `/api/users/register/ciudadano` | Registro de persona natural con RUN |
+| `POST` | `/api/users/register/institucion` | Registro de veterinaria o municipalidad con RUT |
 
 ### Perfil (autenticado)
 
-| Método | Ruta | RF | Descripción |
-|---|---|---|---|
-| `GET` | `/api/users/perfil` | RF-06 | Ver perfil propio |
-| `PATCH` | `/api/users/perfil` | RF-08 | Actualizar perfil (incluye foto de perfil) |
-| `DELETE` | `/api/users/perfil` | RF-10 | Desactivar cuenta propia (soft delete) |
-
-### Ubicación (público)
-
 | Método | Ruta | Descripción |
 |---|---|---|
-| `GET` | `/api/users/regiones` | Listado de regiones de Chile |
-| `GET` | `/api/users/regiones/:codigoRegion/comunas` | Comunas de una región |
+| `GET` | `/api/users/perfil` | Ver perfil propio |
+| `PATCH` | `/api/users/perfil` | Actualizar perfil (incluye foto) |
+| `DELETE` | `/api/users/perfil` | Desactivar cuenta propia |
 
 ### Administración
 
-| Método | Ruta | RF | Roles permitidos | Descripción |
-|---|---|---|---|---|
-| `GET` | `/api/users/admin/usuarios` | RF-07 | `administrador`, `superadmin`, `moderador` | Listar usuarios con filtros |
-| `GET` | `/api/users/admin/usuarios/:id` | RF-07 | `administrador`, `superadmin`, `moderador` | Ver usuario por ID |
-| `PATCH` | `/api/users/admin/usuarios/:id/estado` | RF-10 | `administrador`, `superadmin` | Activar o desactivar cuenta |
-| `PATCH` | `/api/users/admin/usuarios/:id/rol` | RF-09 | `administrador`, `superadmin` | Cambiar rol de usuario |
-| `PATCH` | `/api/users/admin/usuarios/:id/datos` | RF-08 | `administrador`, `superadmin` | Editar datos de usuario |
+| Método | Ruta | Roles permitidos | Descripción |
+|---|---|---|---|
+| `GET` | `/api/users/admin/usuarios` | `administrador`, `superadmin`, `moderador` | Listar usuarios con filtros |
+| `GET` | `/api/users/admin/usuarios/:id` | `administrador`, `superadmin`, `moderador` | Ver usuario por ID |
+| `PATCH` | `/api/users/admin/usuarios/:id/estado` | `administrador`, `superadmin` | Activar o desactivar cuenta |
+| `PATCH` | `/api/users/admin/usuarios/:id/rol` | `administrador`, `superadmin` | Cambiar rol de usuario |
+| `PATCH` | `/api/users/admin/usuarios/:id/datos` | `administrador`, `superadmin` | Editar datos de usuario |
 
 ---
 
 ## Roles del sistema
 
-| Rol | Descripción | Puede ver usuarios | Puede editar/desactivar |
-|---|---|---|---|
-| `ciudadano` | Persona natural registrada | No | — |
-| `veterinaria` | Institución veterinaria | No | — |
-| `municipalidad` | Municipalidad | No | — |
-| `moderador` | Rol de solo lectura administrativo | Sí | No |
-| `administrador` | Administración completa | Sí | Sí |
-| `superadmin` | Acceso total, no puede ser desactivado desde su perfil | Sí (todos) | Sí (todos) |
+| Rol | Descripción |
+|---|---|
+| `ciudadano` | Persona natural registrada |
+| `veterinaria` | Institución veterinaria |
+| `municipalidad` | Municipalidad |
+| `moderador` | Solo lectura administrativa |
+| `administrador` | Administración completa |
+| `superadmin` | Acceso total |
 
 ---
 
-## Validaciones en registro y edición
+## Modelo de datos
+
+### Tabla `users`
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | Identificador único |
+| `credential_id` | UUID único | ID de la credencial en ms-auth |
+| `email` | string único | Correo del usuario |
+| `telefono` | string | Teléfono de contacto |
+| `foto_perfil` | string (URL) | URL de Cloudinary |
+| `rol` | enum | ciudadano / veterinaria / municipalidad / moderador / administrador / superadmin |
+| `tipo` | enum | ciudadano / institucion |
+| `region` | string | Código de región |
+| `comuna` | string | Nombre de la comuna |
+| `is_active` | boolean | Estado de la cuenta |
+| `created_at` | timestamp | Fecha de creación |
+| `updated_at` | timestamp | Última actualización |
+
+### Tabla `ciudadanos`
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | Identificador |
+| `user_id` | UUID (FK) | Referencia a `users` |
+| `primer_nombre` | string | — |
+| `segundo_nombre` | string (opcional) | — |
+| `apellido_paterno` | string | — |
+| `apellido_materno` | string (opcional) | — |
+| `run` | string único | Formato `12345678-9` |
+| `direccion` | string | Dirección de residencia |
+
+### Tabla `instituciones`
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | Identificador |
+| `user_id` | UUID (FK) | Referencia a `users` |
+| `nombre_institucion` | string | Nombre comercial |
+| `razon_social` | string | Razón social legal |
+| `rut` | string único | Formato `76354771-K` |
+| `tipo_institucion` | enum | veterinaria / municipalidad |
+| `direccion` | string | Dirección física |
+
+---
+
+## Validaciones
 
 | Campo | Regla |
 |---|---|
-| `email` | Debe contener `@` |
+| `email` | Formato válido con dominio y extensión |
 | `password` | Mínimo 6 caracteres |
 | `telefono` | Solo números, `+` opcional al inicio |
 | `primer_nombre`, `apellido_paterno` | Solo letras (incluye tildes y ñ), mínimo 3 caracteres |
-| `segundo_nombre`, `apellido_materno` | Mismo criterio si se proporcionan |
 | `nombre_institucion`, `razon_social` | Solo letras, mínimo 3 caracteres |
-| `run` (ciudadano) | Validado con algoritmo módulo 11 chileno; se normaliza a `12345678-9` |
-| `rut` (institución) | Misma validación y normalización |
-
-Las mismas validaciones aplican tanto al registrarse como al editar el perfil.
+| `run` | Validado con algoritmo módulo 11 chileno |
+| `rut` | Misma validación que RUN |
 
 ---
 
 ## Foto de perfil
 
 - Se recibe como `multipart/form-data` con el campo `foto_perfil`
-- Se sube directamente a Cloudinary desde memoria (sin escribir en disco)
-- Al actualizar la foto, **la imagen anterior se elimina automáticamente de Cloudinary** antes de subir la nueva
-- Solo la URL resultante (`secure_url`) se almacena en PostgreSQL
-
----
-
-## Modelo de datos
-
-### Tabla `users` (base común)
-
-| Campo | Tipo | Requerido | Descripción |
-|---|---|---|---|
-| `id` | UUID | ✅ | Identificador único en MS-Users |
-| `credential_id` | UUID | ✅ | ID de la credencial en MS-Auth |
-| `email` | string único | ✅ | Correo del usuario |
-| `telefono` | string | ✅ | Teléfono de contacto |
-| `foto_perfil` | string (URL) | ❌ | URL de Cloudinary |
-| `rol` | enum | ✅ | Ver tabla de roles |
-| `tipo` | enum | ✅ | `ciudadano` o `institucion` |
-| `region` | string | ✅ | Código de región (ej. `08`) |
-| `comuna` | string | ✅ | Nombre de la comuna |
-| `is_active` | boolean | ✅ | Estado de la cuenta |
-| `created_at` | timestamptz | ✅ | Fecha de creación |
-| `updated_at` | timestamptz | ✅ | Última actualización |
-
-### Tabla `ciudadanos`
-
-| Campo | Tipo | Requerido | Descripción |
-|---|---|---|---|
-| `id` | UUID | ✅ | Identificador |
-| `user_id` | UUID (FK) | ✅ | Referencia a `users` |
-| `primer_nombre` | string | ✅ | — |
-| `segundo_nombre` | string | ❌ | — |
-| `apellido_paterno` | string | ✅ | — |
-| `apellido_materno` | string | ❌ | — |
-| `run` | string único | ✅ | Formato normalizado `12345678-9` |
-| `direccion` | string | ✅ | Dirección de residencia |
-
-### Tabla `instituciones`
-
-| Campo | Tipo | Requerido | Descripción |
-|---|---|---|---|
-| `id` | UUID | ✅ | Identificador |
-| `user_id` | UUID (FK) | ✅ | Referencia a `users` |
-| `nombre_institucion` | string | ✅ | Nombre comercial |
-| `razon_social` | string | ✅ | Razón social legal |
-| `rut` | string único | ✅ | Formato normalizado `76354771-K` |
-| `tipo_institucion` | enum | ✅ | `veterinaria` o `municipalidad` |
-| `direccion` | string | ✅ | Dirección física |
-
----
-
-## Ejemplos de uso
-
-### Registro ciudadano
-
-```bash
-POST /api/users/register/ciudadano
-Content-Type: multipart/form-data
-
-email=ciudadano@sanos.cl
-password=123456
-telefono=912345678
-region=08
-comuna=Concepción
-direccion=Av. O'Higgins 123
-primer_nombre=Felipe
-apellido_paterno=Ruiz
-run=11.111.111-1
-foto_perfil=<archivo imagen (opcional)>
-```
-
-### Registro institución
-
-```bash
-POST /api/users/register/institucion
-Content-Type: multipart/form-data
-
-email=veterinaria@sanos.cl
-password=123456
-telefono=412345678
-region=08
-comuna=Concepción
-direccion=Av. Los Carrera 456
-nombre_institucion=Veterinaria San Jorge
-razon_social=San Jorge Ltda.
-rut=76.354.771-K
-tipo_institucion=veterinaria
-foto_perfil=<archivo imagen (opcional)>
-```
-
-### Ver perfil
-
-```bash
-GET /api/users/perfil
-Authorization: Bearer eyJ...
-```
-
-### Actualizar perfil (con foto)
-
-```bash
-PATCH /api/users/perfil
-Authorization: Bearer eyJ...
-Content-Type: multipart/form-data
-
-telefono=987654321
-direccion=Nueva Calle 789
-foto_perfil=<archivo imagen>
-```
-
-### Listar usuarios (admin)
-
-```bash
-GET /api/users/admin/usuarios?rol=ciudadano&is_active=true
-Authorization: Bearer eyJ...
-```
-
-### Cambiar rol
-
-```bash
-PATCH /api/users/admin/usuarios/:id/rol
-Authorization: Bearer eyJ...
-Content-Type: application/json
-
-{ "rol": "moderador" }
-```
-
-Roles válidos: `ciudadano`, `veterinaria`, `municipalidad`, `moderador`, `administrador`
-
-### Cambiar estado
-
-```bash
-PATCH /api/users/admin/usuarios/:id/estado
-Authorization: Bearer eyJ...
-Content-Type: application/json
-
-{ "is_active": false }
-```
+- Se sube a Cloudinary directamente desde memoria (sin escribir en disco)
+- Al actualizar la foto, la imagen anterior se elimina automáticamente de Cloudinary
+- Solo la URL (`secure_url`) se almacena en PostgreSQL
 
 ---
 
@@ -368,16 +304,17 @@ Content-Type: application/json
 ```
 ms-users/
 ├── src/
-│   ├── bootstrap/
-│   │   └── ensureSuperAdmin.ts     # Crea el superadmin automáticamente al iniciar
 │   ├── config/
 │   │   ├── cloudinary.ts           # Configuración Cloudinary
-│   │   ├── db.ts                   # Conexión PostgreSQL + TypeORM
+│   │   ├── db.ts                   # Conexión PostgreSQL + TypeORM (Singleton)
+│   │   ├── redis.ts                # Cola Bull sobre Redis (Singleton)
 │   │   └── swagger.ts              # Configuración OpenAPI 3.0
 │   ├── controllers/
-│   │   └── user.controller.ts      # Handlers HTTP con validaciones
+│   │   └── user.controller.ts      # Handlers HTTP
+│   ├── events/
+│   │   └── event-emitter.service.ts # Emisión de eventos a ms-auth
 │   ├── factories/
-│   │   └── UserFactory.ts          # Patrón Factory para crear ciudadanos/instituciones
+│   │   └── UserFactory.ts          # Factory Method — crea ciudadanos e instituciones
 │   ├── middlewares/
 │   │   ├── errorHandler.ts         # Manejo global de errores
 │   │   ├── notFound.ts             # Ruta no encontrada
@@ -390,17 +327,15 @@ ms-users/
 │   ├── routes/
 │   │   └── user.routes.ts          # Rutas + documentación Swagger inline
 │   ├── services/
-│   │   ├── auth.service.ts         # Cliente HTTP hacia MS-Auth (interno)
 │   │   └── user.service.ts         # Lógica de negocio
 │   ├── utils/
-│   │   ├── regionComuna.ts         # Consulta a API del gobierno de Chile
 │   │   ├── response.ts             # Helpers de respuesta HTTP estandarizada
 │   │   ├── validarDigitoVerificador.ts  # Algoritmo módulo 11 para RUN/RUT
-│   │   └── validators.ts           # Validaciones de campos (nombre, teléfono, RUN)
+│   │   └── validators.ts           # Validaciones de campos
 │   ├── app.ts                      # Configuración Express y middlewares
-│   └── server.ts                   # Punto de entrada, conexión BD y bootstrap
-├── .env
-├── .env.example
+│   └── server.ts                   # Punto de entrada y conexión a la BD
+├── .dockerignore
+├── .gitattributes
 ├── .gitignore
 ├── Dockerfile
 ├── docker-compose.yml
@@ -417,26 +352,6 @@ ms-users/
 | `npm run dev` | Servidor en modo desarrollo con hot reload |
 | `npm run build` | Compila TypeScript a JavaScript en `/dist` |
 | `npm start` | Ejecuta la versión compilada |
-| `docker compose up --build` | Levanta el servicio con PostgreSQL en Docker |
+| `docker compose up -d` | Levanta el servicio con PostgreSQL en Docker (requiere broker levantado) |
 | `docker compose down` | Detiene los contenedores |
 | `docker compose down -v` | Detiene y elimina los volúmenes de datos |
-
----
-
-## Decisiones técnicas
-
-| Decisión | Motivo |
-|---|---|
-| **Factory Method para tipos de usuario** | Encapsula la creación de ciudadano/institución con rollback automático si falla MS-Auth |
-| **Rollback en registro** | Si MS-Users falla tras crear la credencial en MS-Auth, se llama `DELETE /credentials/:id` para evitar huérfanos |
-| **Pre-validación de email único** | MS-Users verifica el email en su propia BD antes de llamar a MS-Auth, evitando credenciales huérfanas |
-| **Algoritmo módulo 11 para RUN/RUT** | Valida el dígito verificador chileno tanto en RUN de personas como en RUT de instituciones |
-| **Normalización de RUN/RUT** | Independiente del formato ingresado, siempre se guarda como `12345678-9` |
-| **Cloudinary con eliminación de foto anterior** | Al actualizar la foto, se elimina la imagen anterior para evitar acumulación de archivos huérfanos |
-| **Soft delete** | Las cuentas se desactivan (`is_active = false`) y nunca se eliminan físicamente |
-| **credential_id sin FK física** | MS-Users referencia a MS-Auth por ID sin relación de clave foránea real (principio de BD independiente por microservicio) |
-| **Sincronización de rol con MS-Auth** | Al cambiar el rol, MS-Users notifica a MS-Auth vía `PATCH /credentials/:id/role` para mantener el JWT actualizado |
-| **Moderador de solo lectura** | El rol `moderador` puede consultar usuarios pero no modificar datos, estados ni roles |
-| **SuperAdmin no puede desactivarse desde su perfil** | La "zona de peligro" en el frontend se oculta para el superadmin; el backend no tiene restricción adicional porque el superadmin no se desactivaría a sí mismo |
-| **Regiones y comunas desde API gobierno** | Datos oficiales de Chile obtenidos de `apis.digital.gob.cl/dpa` |
-| **UUID como identificador** | Previene enumeración maliciosa de recursos (IDOR) |
