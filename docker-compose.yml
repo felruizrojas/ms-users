@@ -25,6 +25,9 @@ services:
   ms-users:
     container_name: ms-users
     image: felruiz/ms-users:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     platform: linux/amd64
     environment:
       NODE_ENV: production
