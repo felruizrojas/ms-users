@@ -54,6 +54,13 @@ export interface UserDeletedPayload {
   timestamp: Date;
 }
 
+export interface UserPasswordChangedPayload {
+  event: 'user.password.changed';
+  userId: string;
+  passwordHash: string;
+  timestamp: Date;
+}
+
 export const emitUserRegistered = async (data: Omit<UserRegisteredPayload, 'event' | 'timestamp'>): Promise<void> => {
   const payload: UserRegisteredPayload = { ...data, event: 'user.registered', timestamp: new Date() };
   try {
@@ -83,5 +90,20 @@ export const emitUserDeleted = async (userId: string): Promise<void> => {
     console.log(`[event-emitter] user.deleted emitido para userId=${userId}`);
   } catch (err: any) {
     console.error(`[event-emitter] Falló emisión user.deleted para userId=${userId}: ${err.message}`);
+  }
+};
+
+export const emitUserPasswordChanged = async (userId: string, passwordHash: string): Promise<void> => {
+  const payload: UserPasswordChangedPayload = {
+    userId,
+    passwordHash,
+    event: 'user.password.changed',
+    timestamp: new Date(),
+  };
+  try {
+    await userEventsQueue.add('user.password.changed', payload);
+    console.log(`[event-emitter] user.password.changed emitido para userId=${userId}`);
+  } catch (err: any) {
+    console.error(`[event-emitter] Falló emisión user.password.changed para userId=${userId}: ${err.message}`);
   }
 };

@@ -32,6 +32,9 @@ export class User {
   email!: string;
 
   @Column()
+  password_hash!: string;
+
+  @Column()
   telefono!: string;
 
   @Column({ nullable: true })

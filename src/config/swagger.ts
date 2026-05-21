@@ -5,8 +5,8 @@ const options: swaggerJsdoc.Options = {
     openapi: '3.0.0',
     info: {
       title: 'MS-Users — Sanos y Salvos',
-      version: '1.0.0',
-      description: 'Microservicio de gestión de usuarios: registro de ciudadanos e instituciones, perfiles, regiones y comunas',
+      version: '2.0.0',
+      description: 'Microservicio de gestión de usuarios: registro de ciudadanos e instituciones, perfil, gestión de contraseñas (cambio y recuperación por OTP) y administración. Fuente de verdad de los datos del usuario.',
     },
     servers: [
       {

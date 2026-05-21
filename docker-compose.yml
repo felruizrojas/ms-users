@@ -49,6 +49,9 @@ services:
       CLOUDINARY_CLOUD_NAME: dx83p4455
       CLOUDINARY_API_KEY: 862891856153891
       CLOUDINARY_API_SECRET: si3Ik1sHAE63QrUhwipeArQUiq0
+      # Gmail (OTP / reset de contraseña)
+      GMAIL_USER: felandresr@gmail.com
+      GMAIL_APP_PASSWORD: polabayuyxzzbyyc
     ports:
       - "3002:3002"
     depends_on:

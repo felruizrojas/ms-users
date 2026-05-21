@@ -2,6 +2,7 @@ import { DataSource } from 'typeorm';
 import { User } from '../models/User';
 import { Ciudadano } from '../models/Ciudadano';
 import { Institucion } from '../models/Institucion';
+import { PasswordResetOtp } from '../models/PasswordResetOtp';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -14,5 +15,5 @@ export const AppDataSource = new DataSource({
   database: process.env.DB_NAME,
   synchronize: true,
   logging: false,
-  entities: [User, Ciudadano, Institucion],
+  entities: [User, Ciudadano, Institucion, PasswordResetOtp],
 });
