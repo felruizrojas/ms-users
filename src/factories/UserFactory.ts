@@ -36,6 +36,7 @@ export const UserFactory = {
     const user = userRepo().create({
       credential_id: credentialId,
       email: datos.email.toLowerCase(),
+      password_hash: passwordHash,
       telefono: datos.telefono,
       region: datos.region,
       comuna: datos.comuna,
@@ -63,32 +64,27 @@ export const UserFactory = {
     await ciudadanoRepo().save(ciudadano);
 
     const name = `${datos.primer_nombre} ${datos.apellido_paterno}`.trim();
-    try {
-      await emitUserRegistered({
-        userId: credentialId,
-        email: datos.email,
-        passwordHash,
-        role: RolUsuario.CIUDADANO,
-        permissions: [],
-        name,
-        avatarUrl: datos.foto_perfil,
-        tipo: 'ciudadano',
-        telefono: datos.telefono,
-        region: datos.region,
-        comuna: datos.comuna,
-        primer_nombre: datos.primer_nombre,
-        segundo_nombre: datos.segundo_nombre,
-        apellido_paterno: datos.apellido_paterno,
-        apellido_materno: datos.apellido_materno,
-        run: datos.run,
-        direccion: datos.direccion,
-      });
-    } catch (eventErr) {
-      // Si el evento falla ms-auth no crea la credencial — revertir para mantener consistencia
-      await ciudadanoRepo().delete({ id: ciudadano.id });
-      await userRepo().delete({ id: user.id });
-      throw new Error('Error al sincronizar con el servicio de autenticación. Intenta nuevamente.');
-    }
+    // Evento async — si falla, queda en cola de Bull y se reintenta cuando vuelva el broker.
+    // ms-users es fuente de verdad: el registro local NO se revierte si el evento falla.
+    await emitUserRegistered({
+      userId: credentialId,
+      email: datos.email,
+      passwordHash,
+      role: RolUsuario.CIUDADANO,
+      permissions: [],
+      name,
+      avatarUrl: datos.foto_perfil,
+      tipo: 'ciudadano',
+      telefono: datos.telefono,
+      region: datos.region,
+      comuna: datos.comuna,
+      primer_nombre: datos.primer_nombre,
+      segundo_nombre: datos.segundo_nombre,
+      apellido_paterno: datos.apellido_paterno,
+      apellido_materno: datos.apellido_materno,
+      run: datos.run,
+      direccion: datos.direccion,
+    });
 
     return { user, ciudadano };
   },
@@ -122,6 +118,7 @@ export const UserFactory = {
     const user = userRepo().create({
       credential_id: credentialId,
       email: datos.email.toLowerCase(),
+      password_hash: passwordHash,
       telefono: datos.telefono,
       region: datos.region,
       comuna: datos.comuna,
@@ -147,29 +144,25 @@ export const UserFactory = {
     });
     await institucionRepo().save(institucion);
 
-    try {
-      await emitUserRegistered({
-        userId: credentialId,
-        email: datos.email,
-        passwordHash,
-        role: rol,
-        permissions: [],
-        name: datos.nombre_institucion,
-        avatarUrl: datos.foto_perfil,
-        tipo: 'institucion',
-        telefono: datos.telefono,
-        region: datos.region,
-        comuna: datos.comuna,
-        razon_social: datos.razon_social,
-        rut: datos.rut,
-        tipo_institucion: datos.tipo_institucion,
-        direccion: datos.direccion,
-      });
-    } catch (eventErr) {
-      await institucionRepo().delete({ id: institucion.id });
-      await userRepo().delete({ id: user.id });
-      throw new Error('Error al sincronizar con el servicio de autenticación. Intenta nuevamente.');
-    }
+    // Evento async — si falla, queda en cola de Bull y se reintenta cuando vuelva el broker.
+    // ms-users es fuente de verdad: el registro local NO se revierte si el evento falla.
+    await emitUserRegistered({
+      userId: credentialId,
+      email: datos.email,
+      passwordHash,
+      role: rol,
+      permissions: [],
+      name: datos.nombre_institucion,
+      avatarUrl: datos.foto_perfil,
+      tipo: 'institucion',
+      telefono: datos.telefono,
+      region: datos.region,
+      comuna: datos.comuna,
+      razon_social: datos.razon_social,
+      rut: datos.rut,
+      tipo_institucion: datos.tipo_institucion,
+      direccion: datos.direccion,
+    });
 
     return { user, institucion };
   },

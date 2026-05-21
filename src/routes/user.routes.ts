@@ -1,11 +1,98 @@
 import { Router } from 'express';
 import multer from 'multer';
 import * as UserController from '../controllers/user.controller';
+import * as PasswordController from '../controllers/password.controller';
 import { verifyToken } from '../middlewares/verifyToken';
 import { requireRole } from '../middlewares/requireRole';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
+
+/**
+ * @swagger
+ * /api/users/perfil/password:
+ *   patch:
+ *     summary: Cambiar contraseña del usuario autenticado
+ *     tags: [Perfil]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [currentPassword, newPassword]
+ *             properties:
+ *               currentPassword:
+ *                 type: string
+ *                 example: "123456"
+ *               newPassword:
+ *                 type: string
+ *                 example: "nueva123"
+ *     responses:
+ *       200:
+ *         description: Contraseña actualizada correctamente
+ *       400:
+ *         description: Contraseña actual incorrecta o nueva contraseña inválida
+ *       401:
+ *         description: Token requerido
+ */
+router.patch('/perfil/password', verifyToken, PasswordController.changePassword);
+
+/**
+ * @swagger
+ * /api/users/forgot-password:
+ *   post:
+ *     summary: Solicitar OTP para recuperar contraseña
+ *     tags: [Perfil]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email]
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 example: test@sanos.cl
+ *     responses:
+ *       200:
+ *         description: Respuesta genérica (independiente de si el correo existe)
+ */
+router.post('/forgot-password', PasswordController.forgotPassword);
+
+/**
+ * @swagger
+ * /api/users/reset-password:
+ *   patch:
+ *     summary: Verificar OTP y cambiar contraseña
+ *     tags: [Perfil]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email, code, newPassword]
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 example: test@sanos.cl
+ *               code:
+ *                 type: string
+ *                 example: "123456"
+ *               newPassword:
+ *                 type: string
+ *                 example: "nuevapass123"
+ *     responses:
+ *       200:
+ *         description: Contraseña actualizada correctamente
+ *       400:
+ *         description: Código inválido o expirado
+ */
+router.patch('/reset-password', PasswordController.resetPassword);
 
 /**
  * @swagger
